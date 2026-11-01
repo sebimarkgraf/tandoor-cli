@@ -199,7 +199,12 @@ impl Client {
 
     /// Collect pages starting at `query.page` (the first page when omitted).
     pub async fn list_all_recipes(&self, query: &RecipeQuery) -> Result<Vec<Recipe>> {
-        let mut page = self.list_recipes(query).await?;
+        self.collect_pages(self.list_recipes(query).await?).await
+    }
+
+    /// Collect this page and all following pages, rejecting repeated next URLs.
+    /// Works with any paginated resource fetched through `request`.
+    pub async fn collect_pages<T: DeserializeOwned>(&self, mut page: Page<T>) -> Result<Vec<T>> {
         let mut results = Vec::new();
         let mut visited = HashSet::new();
         loop {

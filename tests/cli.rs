@@ -6,7 +6,7 @@ use std::{
 use serde_json::{Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{body_partial_json, method, path, query_param},
+    matchers::{body_json, body_partial_json, method, path, query_param},
 };
 
 async fn cli(url: &str, args: &[&str], input: Option<&str>) -> Output {
@@ -40,7 +40,7 @@ async fn cli(url: &str, args: &[&str], input: Option<&str>) -> Output {
 }
 
 #[tokio::test]
-async fn list_and_search_accept_top_level_query_flags() {
+async fn recipe_list_and_search_accept_query_flags() {
     let server = MockServer::start().await;
     let page = json!({
         "count":1,"next":null,"previous":null,"results":[{"id":7,"name":"Soup"}]
@@ -56,7 +56,7 @@ async fn list_and_search_accept_top_level_query_flags() {
     for command in ["list", "search"] {
         let output = cli(
             &server.uri(),
-            &[command, "--query", "Soup", "--page-size", "10"],
+            &["recipe", command, "--query", "Soup", "--page-size", "10"],
             None,
         )
         .await;
@@ -86,7 +86,7 @@ async fn piped_output_is_json_and_text_output_is_readable() {
         .expect(2)
         .mount(&server)
         .await;
-    let output = cli(&server.uri(), &["get", "7"], None).await;
+    let output = cli(&server.uri(), &["recipe", "get", "7"], None).await;
     assert!(
         output.status.success(),
         "{}",
@@ -95,7 +95,12 @@ async fn piped_output_is_json_and_text_output_is_readable() {
     assert!(output.stderr.is_empty());
     let recipe: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(recipe["id"], 7);
-    let output = cli(&server.uri(), &["get", "7", "--output", "text"], None).await;
+    let output = cli(
+        &server.uri(),
+        &["recipe", "get", "7", "--output", "text"],
+        None,
+    )
+    .await;
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("Soup (#7)"));
@@ -121,7 +126,7 @@ async fn create_accepts_stdin_and_simple_flags() {
         .await;
     let output = cli(
         &server.uri(),
-        &["create", "--file", "-"],
+        &["recipe", "create", "--file", "-"],
         Some(r#"{"name":"Soup","steps":[{"instruction":"Simmer."}]}"#),
     )
     .await;
@@ -132,7 +137,14 @@ async fn create_accepts_stdin_and_simple_flags() {
     );
     let output = cli(
         &server.uri(),
-        &["create", "--name", "Soup", "--instruction", "Simmer."],
+        &[
+            "recipe",
+            "create",
+            "--name",
+            "Soup",
+            "--instruction",
+            "Simmer.",
+        ],
         None,
     )
     .await;
@@ -144,7 +156,7 @@ async fn create_accepts_stdin_and_simple_flags() {
 }
 
 #[tokio::test]
-async fn update_accepts_a_top_level_id_and_stdin_patch() {
+async fn recipe_update_accepts_an_id_and_stdin_patch() {
     let server = MockServer::start().await;
     Mock::given(method("PATCH"))
         .and(path("/api/recipe/7/"))
@@ -157,7 +169,7 @@ async fn update_accepts_a_top_level_id_and_stdin_patch() {
         .await;
     let output = cli(
         &server.uri(),
-        &["update", "7", "--file", "-"],
+        &["recipe", "update", "7", "--file", "-"],
         Some(r#"{"servings":4}"#),
     )
     .await;
@@ -179,7 +191,12 @@ async fn runtime_errors_are_json_on_stderr_and_stdout_is_empty() {
         .expect(1)
         .mount(&server)
         .await;
-    let output = cli(&server.uri(), &["--output", "json", "get", "999"], None).await;
+    let output = cli(
+        &server.uri(),
+        &["--output", "json", "recipe", "get", "999"],
+        None,
+    )
+    .await;
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
@@ -191,9 +208,14 @@ async fn runtime_errors_are_json_on_stderr_and_stdout_is_empty() {
 #[tokio::test]
 async fn invalid_json_and_unconfirmed_deletes_do_not_make_requests() {
     let server = MockServer::start().await;
-    let invalid = cli(&server.uri(), &["create", "--file", "-"], Some("not json")).await;
+    let invalid = cli(
+        &server.uri(),
+        &["recipe", "create", "--file", "-"],
+        Some("not json"),
+    )
+    .await;
     assert_eq!(invalid.status.code(), Some(1));
-    let delete = cli(&server.uri(), &["delete", "7"], None).await;
+    let delete = cli(&server.uri(), &["recipe", "delete", "7"], None).await;
     assert_eq!(delete.status.code(), Some(2));
     let api = cli(
         &server.uri(),
@@ -214,7 +236,7 @@ async fn explicit_delete_succeeds_with_machine_readable_confirmation() {
         .expect(1)
         .mount(&server)
         .await;
-    let output = cli(&server.uri(), &["delete", "7", "--yes"], None).await;
+    let output = cli(&server.uri(), &["recipe", "delete", "7", "--yes"], None).await;
     assert!(
         output.status.success(),
         "{}",
@@ -238,4 +260,211 @@ fn help_does_not_require_credentials_or_expose_environment_token() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("TANDOOR_TOKEN"));
     assert!(!help.contains("do-not-display"));
+}
+
+#[tokio::test]
+async fn resource_commands_create_get_patch_and_delete_the_correct_endpoints() {
+    let server = MockServer::start().await;
+    for (resource, endpoint, body, patch, label) in [
+        (
+            "food",
+            "food",
+            json!({"name":"Flour","plural_name":"Flours"}),
+            json!({"plural_name":"Flour","supermarket_category":null}),
+            "Flour",
+        ),
+        (
+            "tag",
+            "keyword",
+            json!({"name":"Dinner","description":"Evening meals"}),
+            json!({"description":"Quick dinners"}),
+            "Dinner",
+        ),
+        (
+            "ingredient",
+            "ingredient",
+            json!({"food":{"id":3,"name":"Flour"},"unit":{"id":1,"name":"g"},
+                "amount":"125.50","note":"sifted"}),
+            json!({"amount":"250.00","unit":null}),
+            "125.50 g Flour sifted",
+        ),
+    ] {
+        let mut response = body.clone();
+        response["id"] = json!(7);
+        response["server_field"] = json!("retained");
+        Mock::given(method("POST"))
+            .and(path(format!("/api/{endpoint}/")))
+            .and(body_json(&body))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/{endpoint}/7/")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path(format!("/api/{endpoint}/7/")))
+            .and(body_json(&patch))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path(format!("/api/{endpoint}/7/")))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        for (args, input) in [
+            (vec![resource, "create", "--file", "-"], body.to_string()),
+            (
+                vec![resource, "update", "7", "--file", "-"],
+                patch.to_string(),
+            ),
+        ] {
+            let output = cli(&server.uri(), &args, Some(&input)).await;
+            assert!(
+                output.status.success(),
+                "{resource}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+                response
+            );
+        }
+        let output = cli(
+            &server.uri(),
+            &[resource, "get", "7", "--output", "text"],
+            None,
+        )
+        .await;
+        assert!(output.status.success());
+        assert!(String::from_utf8(output.stdout).unwrap().contains(label));
+        let output = cli(&server.uri(), &[resource, "delete", "7", "--yes"], None).await;
+        assert!(output.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            json!({"deleted":true,"id":7})
+        );
+        server.verify().await;
+        server.reset().await;
+    }
+}
+
+#[tokio::test]
+async fn resource_lists_search_filter_and_follow_pagination() {
+    let server = MockServer::start().await;
+    for (resource, endpoint, filters, entry) in [
+        (
+            "food",
+            "food",
+            vec!["--query", "Flour & salt"],
+            json!({"id":3,"name":"Flour"}),
+        ),
+        (
+            "tag",
+            "keyword",
+            vec!["--query", "Dinner"],
+            json!({"id":3,"name":"Dinner"}),
+        ),
+        (
+            "ingredient",
+            "ingredient",
+            vec!["--food", "3", "--unit", "1"],
+            json!({"id":3,"amount":"0.5","food":{"name":"Flour"},"unit":{"name":"g"}}),
+        ),
+    ] {
+        let mut mock = Mock::given(method("GET"))
+            .and(path(format!("/api/{endpoint}/")))
+            .and(query_param("page", "2"))
+            .and(query_param("page_size", "1"));
+        for pair in filters.chunks_exact(2) {
+            mock = mock.and(query_param(pair[0].trim_start_matches('-'), pair[1]));
+        }
+        mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "count":3,"next":format!("/api/{endpoint}/?page=3"),"previous":"?page=1",
+            "results":[entry]
+        })))
+        .expect(3)
+        .mount(&server)
+        .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/{endpoint}/")))
+            .and(query_param("page", "3"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "count":3,"next":null,"previous":"?page=2","results":[entry]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut args = vec![resource, "list", "--page", "2", "--page-size", "1"];
+        args.extend(filters);
+        let output = cli(&server.uri(), &args, None).await;
+        assert!(output.status.success());
+        let page: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(page["count"], 3);
+        assert_eq!(page["results"], json!([entry]));
+        args[1] = "search";
+        args.extend(["--output", "text"]);
+        let output = cli(&server.uri(), &args, None).await;
+        assert!(output.status.success());
+        assert!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("3 total; more pages: yes")
+        );
+        args.truncate(args.len() - 2);
+        args.push("--all");
+        let output = cli(&server.uri(), &args, None).await;
+        assert!(output.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            json!([entry, entry])
+        );
+        server.verify().await;
+        server.reset().await;
+    }
+}
+
+#[tokio::test]
+async fn resource_invalid_input_and_unconfirmed_deletes_make_no_requests() {
+    let server = MockServer::start().await;
+    for resource in ["food", "ingredient", "tag"] {
+        for input in ["not json", "[]", "null"] {
+            let output = cli(
+                &server.uri(),
+                &[resource, "create", "--file", "-"],
+                Some(input),
+            )
+            .await;
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+        }
+        let output = cli(&server.uri(), &[resource, "delete", "7"], None).await;
+        assert_eq!(output.status.code(), Some(2));
+    }
+    for resource in ["food", "tag"] {
+        for input in [r#"{}"#, r#"{"name":"  "}"#, r#"{"name":null}"#] {
+            let output = cli(
+                &server.uri(),
+                &[resource, "create", "--file", "-"],
+                Some(input),
+            )
+            .await;
+            assert_eq!(output.status.code(), Some(1));
+        }
+    }
+    for args in [
+        vec!["ingredient", "list", "--query", "Flour"],
+        vec!["food", "list", "--food", "1"],
+        vec!["tag", "list", "--unit", "1"],
+    ] {
+        let output = cli(&server.uri(), &args, None).await;
+        assert_eq!(output.status.code(), Some(1));
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
 }
