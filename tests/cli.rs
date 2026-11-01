@@ -468,3 +468,90 @@ async fn resource_invalid_input_and_unconfirmed_deletes_make_no_requests() {
     }
     assert!(server.received_requests().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn food_merge_uses_native_endpoint_and_preserves_explicit_direction() {
+    let server = MockServer::start().await;
+    let response = json!({"msg":"Foods merged successfully", "server_field":"retained"});
+    for (source, target) in [("7", "3"), ("3", "7")] {
+        Mock::given(method("PUT"))
+            .and(path(format!("/api/food/{source}/merge/{target}/")))
+            .and(body_json(json!({})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .expect(2)
+            .mount(&server)
+            .await;
+        let output = cli(
+            &server.uri(),
+            &["food", "merge", source, target, "--yes"],
+            None,
+        )
+        .await;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            response
+        );
+        let output = cli(
+            &server.uri(),
+            &[
+                "foods", "merge", source, target, "--yes", "--output", "text",
+            ],
+            None,
+        )
+        .await;
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("Merged food {source} into {target}.\n")
+        );
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn invalid_and_unconfirmed_food_merges_make_no_requests() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["food", "merge", "7", "3"],
+        vec!["food", "merge", "7", "--yes"],
+        vec!["food", "merge", "invalid", "3", "--yes"],
+        vec!["ingredient", "merge", "7", "3", "--yes"],
+        vec!["tag", "merge", "7", "3", "--yes"],
+    ] {
+        let output = cli(&server.uri(), &args, None).await;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+    let output = cli(&server.uri(), &["food", "merge", "7", "7", "--yes"], None).await;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["kind"], "input");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn food_merge_reports_server_failure_without_success_output() {
+    let server = MockServer::start().await;
+    let details = json!({"error":true,"msg":"No food with id 999 exists"});
+    Mock::given(method("PUT"))
+        .and(path("/api/food/7/merge/999/"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(&details))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let output = cli(&server.uri(), &["food", "merge", "7", "999", "--yes"], None).await;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["kind"], "api");
+    assert_eq!(error["error"]["status"], 404);
+    assert_eq!(error["error"]["details"], details);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}

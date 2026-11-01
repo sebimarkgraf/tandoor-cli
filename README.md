@@ -109,6 +109,20 @@ a non-empty `name`. Other writable fields follow your server's serializers.
 `foods`, `ingredients`, and `tags` alias their singular groups; `keyword` also
 aliases `tag`.
 
+Foods also support merging duplicates into an explicit target ID:
+
+```sh
+tandoor food merge 511 175 --yes
+```
+
+`food merge SOURCE_ID TARGET_ID --yes` uses Tandoor's native merge endpoint
+(`PUT food/SOURCE_ID/merge/TARGET_ID/`). References move to the target and the
+source is deleted. The target's existing values take precedence; source nutrition
+properties and unit conversions may be discarded by the server, so transfer any
+data you need before merging. The CLI does not copy metadata or choose which ID
+to retain. JSON output is the server's merge response; text output confirms both
+IDs. Merging an ID into itself is rejected before sending a request.
+
 Creating a food or tag does not assign it to a recipe. Creating an ingredient row
 does not attach it to a step. To change a recipe's ingredient membership, update
 its complete `steps` array through `recipe update`, retaining existing step and

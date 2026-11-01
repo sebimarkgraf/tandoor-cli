@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tandoor::{Auth, Client, Error, Method, NewRecipe, Recipe, RecipePatch, RecipeQuery, Step};
 
 mod resources;
-use resources::{Resource, ResourceCommand};
+use resources::{FoodCommand, Resource, ResourceCommand};
 
 #[derive(Parser)]
 #[command(
@@ -64,7 +64,7 @@ enum Command {
     #[command(alias = "foods")]
     Food {
         #[command(subcommand)]
-        command: ResourceCommand,
+        command: FoodCommand,
     },
     /// Manage recipe ingredient rows (food, unit, amount, and note)
     #[command(alias = "ingredients")]
@@ -246,7 +246,7 @@ async fn run(cli: &Cli) -> Result<CommandOutput, CliError> {
     };
     let client = Client::with_timeout(url, auth, Duration::from_secs(cli.timeout))?;
     match &cli.command {
-        Command::Food { command } => resources::run(&client, Resource::Food, command).await,
+        Command::Food { command } => resources::run_food(&client, command).await,
         Command::Ingredient { command } => {
             resources::run(&client, Resource::Ingredient, command).await
         }

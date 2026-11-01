@@ -7,6 +7,21 @@ use tandoor::{Client, Method, Page};
 use crate::{CliError, CommandOutput, read_json, render_ingredient};
 
 #[derive(Subcommand)]
+pub enum FoodCommand {
+    #[command(flatten)]
+    Resource(ResourceCommand),
+    /// Merge SOURCE_ID into TARGET_ID and delete the source (requires --yes)
+    ///
+    /// Tandoor may discard source nutrition properties and unit conversions.
+    Merge {
+        source_id: u64,
+        target_id: u64,
+        #[arg(long, required = true)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ResourceCommand {
     /// List a page of entries
     #[command(alias = "search")]
@@ -103,6 +118,33 @@ impl Resource {
             text.push_str(&format!("\n{description}"));
         }
         Ok(CommandOutput { json: value, text })
+    }
+}
+
+pub async fn run_food(client: &Client, command: &FoodCommand) -> Result<CommandOutput, CliError> {
+    match command {
+        FoodCommand::Resource(command) => run(client, Resource::Food, command).await,
+        FoodCommand::Merge {
+            source_id,
+            target_id,
+            ..
+        } => {
+            if source_id == target_id {
+                return Err(CliError::input("source and target food IDs must differ"));
+            }
+            let value = client
+                .request(
+                    Method::PUT,
+                    &format!("food/{source_id}/merge/{target_id}/"),
+                    &[],
+                    Some(&json!({})),
+                )
+                .await?;
+            Ok(CommandOutput {
+                json: value,
+                text: format!("Merged food {source_id} into {target_id}."),
+            })
+        }
     }
 }
 
