@@ -1,0 +1,28 @@
+{
+  "name": "Simple pasta",
+  "description": "Pasta with tomato sauce",
+  "servings": 2,
+  "working_time": 15,
+  "keywords": [{ "name": "Dinner" }],
+  "steps": [
+    {
+      "name": "Cook",
+      "instruction": "Boil the pasta, then toss with warm tomato sauce.",
+      "order": 0,
+      "ingredients": [
+        {
+          "food": { "name": "Pasta" },
+          "unit": { "name": "g" },
+          "amount": "200",
+          "order": 0
+        },
+        {
+          "food": { "name": "Tomato sauce" },
+          "unit": { "name": "g" },
+          "amount": "250",
+          "order": 1
+        }
+      ]
+    }
+  ]
+}
