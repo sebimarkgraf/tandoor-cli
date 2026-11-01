@@ -52,28 +52,6 @@ enum Output {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Search, read, create, edit, or delete recipes
-    #[command(subcommand, alias = "recipes")]
-    Recipe(RecipeCommand),
-    /// Call any endpoint relative to the API root (e.g. keyword/)
-    Api {
-        path: String,
-        #[arg(short, long, default_value = "GET", value_parser = ["GET", "POST", "PUT", "PATCH", "DELETE"])]
-        method: String,
-        /// Repeatable query parameter, as key=value
-        #[arg(short, long, value_parser = parse_pair)]
-        query: Vec<(String, String)>,
-        /// JSON body file; use - to read stdin
-        #[arg(short, long)]
-        file: Option<PathBuf>,
-        /// Required for API requests that write data
-        #[arg(long)]
-        yes: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum RecipeCommand {
     /// List a page of recipes or search by text
     #[command(alias = "search")]
     List {
@@ -105,6 +83,21 @@ enum RecipeCommand {
     Delete {
         id: u64,
         #[arg(long, required = true)]
+        yes: bool,
+    },
+    /// Call any endpoint relative to the API root (e.g. keyword/)
+    Api {
+        path: String,
+        #[arg(short, long, default_value = "GET", value_parser = ["GET", "POST", "PUT", "PATCH", "DELETE"])]
+        method: String,
+        /// Repeatable query parameter, as key=value
+        #[arg(short, long, value_parser = parse_pair)]
+        query: Vec<(String, String)>,
+        /// JSON body file; use - to read stdin
+        #[arg(short, long)]
+        file: Option<PathBuf>,
+        /// Required for API requests that write data
+        #[arg(long)]
         yes: bool,
     },
 }
@@ -223,81 +216,79 @@ async fn run(cli: &Cli) -> Result<CommandOutput, CliError> {
     };
     let client = Client::with_timeout(url, auth, Duration::from_secs(cli.timeout))?;
     match &cli.command {
-        Command::Recipe(command) => match command {
-            RecipeCommand::List {
-                query,
-                page,
-                page_size,
-                sort,
-                all,
-            } => {
-                let query = RecipeQuery {
-                    query: query.clone(),
-                    page: Some(*page),
-                    page_size: Some(*page_size),
-                    sort_order: sort.clone(),
-                };
-                if *all {
-                    let recipes = client.list_all_recipes(&query).await?;
-                    let text = render_list(&recipes);
-                    Ok(CommandOutput {
-                        json: serde_json::to_value(recipes)?,
-                        text,
-                    })
-                } else {
-                    let page = client.list_recipes(&query).await?;
-                    let mut text = render_list(&page.results);
-                    text.push_str(&format!(
-                        "\n{} total; more pages: {}",
-                        page.count,
-                        if page.next.is_some() { "yes" } else { "no" }
-                    ));
-                    Ok(CommandOutput {
-                        json: serde_json::to_value(page)?,
-                        text,
-                    })
-                }
-            }
-            RecipeCommand::Get { id } => recipe_output(client.get_recipe(*id).await?),
-            RecipeCommand::Create(args) => {
-                let recipe = if let Some(file) = &args.file {
-                    serde_json::from_value::<NewRecipe>(read_json(file)?)?
-                } else {
-                    let mut recipe =
-                        NewRecipe::new(args.name.as_deref().expect("clap requires name or file"));
-                    recipe.description = args.description.clone();
-                    recipe.servings = args.servings.unwrap_or(1);
-                    recipe.steps = args
-                        .instruction
-                        .iter()
-                        .enumerate()
-                        .map(|(order, instruction)| Step {
-                            instruction: instruction.clone(),
-                            order: order as u32,
-                            ..Default::default()
-                        })
-                        .collect();
-                    recipe
-                };
-                if recipe.name.trim().is_empty() || recipe.servings == 0 {
-                    return Err(CliError::input(
-                        "recipe name must not be empty and servings must be positive",
-                    ));
-                }
-                recipe_output(client.create_recipe(&recipe).await?)
-            }
-            RecipeCommand::Update { id, file } => {
-                let patch: RecipePatch = serde_json::from_value(read_json(file)?)?;
-                recipe_output(client.update_recipe(*id, &patch).await?)
-            }
-            RecipeCommand::Delete { id, .. } => {
-                client.delete_recipe(*id).await?;
+        Command::List {
+            query,
+            page,
+            page_size,
+            sort,
+            all,
+        } => {
+            let query = RecipeQuery {
+                query: query.clone(),
+                page: Some(*page),
+                page_size: Some(*page_size),
+                sort_order: sort.clone(),
+            };
+            if *all {
+                let recipes = client.list_all_recipes(&query).await?;
+                let text = render_list(&recipes);
                 Ok(CommandOutput {
-                    json: json!({"deleted": true, "id": id}),
-                    text: format!("Deleted recipe {id}."),
+                    json: serde_json::to_value(recipes)?,
+                    text,
+                })
+            } else {
+                let page = client.list_recipes(&query).await?;
+                let mut text = render_list(&page.results);
+                text.push_str(&format!(
+                    "\n{} total; more pages: {}",
+                    page.count,
+                    if page.next.is_some() { "yes" } else { "no" }
+                ));
+                Ok(CommandOutput {
+                    json: serde_json::to_value(page)?,
+                    text,
                 })
             }
-        },
+        }
+        Command::Get { id } => recipe_output(client.get_recipe(*id).await?),
+        Command::Create(args) => {
+            let recipe = if let Some(file) = &args.file {
+                serde_json::from_value::<NewRecipe>(read_json(file)?)?
+            } else {
+                let mut recipe =
+                    NewRecipe::new(args.name.as_deref().expect("clap requires name or file"));
+                recipe.description = args.description.clone();
+                recipe.servings = args.servings.unwrap_or(1);
+                recipe.steps = args
+                    .instruction
+                    .iter()
+                    .enumerate()
+                    .map(|(order, instruction)| Step {
+                        instruction: instruction.clone(),
+                        order: order as u32,
+                        ..Default::default()
+                    })
+                    .collect();
+                recipe
+            };
+            if recipe.name.trim().is_empty() || recipe.servings == 0 {
+                return Err(CliError::input(
+                    "recipe name must not be empty and servings must be positive",
+                ));
+            }
+            recipe_output(client.create_recipe(&recipe).await?)
+        }
+        Command::Update { id, file } => {
+            let patch: RecipePatch = serde_json::from_value(read_json(file)?)?;
+            recipe_output(client.update_recipe(*id, &patch).await?)
+        }
+        Command::Delete { id, .. } => {
+            client.delete_recipe(*id).await?;
+            Ok(CommandOutput {
+                json: json!({"deleted": true, "id": id}),
+                text: format!("Deleted recipe {id}."),
+            })
+        }
         Command::Api {
             path,
             method,

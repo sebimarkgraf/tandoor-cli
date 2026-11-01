@@ -10,7 +10,7 @@ binary adds argument parsing, environment configuration, input, and presentation
 cargo install --path . --locked
 export TANDOOR_URL='https://recipes.example.com'
 export TANDOOR_TOKEN='your-api-token'
-tandoor recipe list
+tandoor list
 ```
 
 For development, use `cargo run -- <arguments>` in place of `tandoor`.
@@ -39,17 +39,17 @@ The request timeout is 30 seconds; override it with `--timeout SECONDS`.
 ## Recipes
 
 ```sh
-tandoor recipe list --query 'pasta' --page-size 10
-tandoor recipe list --all --sort name
-tandoor recipe get 42
-tandoor recipe create --name 'Soup' --servings 2 --instruction 'Simmer for 20 minutes.'
-tandoor recipe create --file examples/recipe.json
+tandoor list --query 'pasta' --page-size 10
+tandoor list --all --sort name
+tandoor get 42
+tandoor create --name 'Soup' --servings 2 --instruction 'Simmer for 20 minutes.'
+tandoor create --file examples/recipe.json
 printf '%s\n' '{"description":"Weeknight dinner","servings":4}' |
-  tandoor recipe update 42 --file -
-tandoor recipe delete 42 --yes
+  tandoor update 42 --file -
+tandoor delete 42 --yes
 ```
 
-`recipes` aliases `recipe`; `recipe search` aliases `recipe list`. Use `--help`
+`search` aliases `list`. Use `--help`
 on any command to discover its arguments. Commands do not prompt, and deletion
 requires an explicit `--yes`.
 
@@ -69,9 +69,9 @@ posting an entire response, which includes server-managed fields.
 ## Agent and scripting contract
 
 ```sh
-tandoor --output json recipe list --query 'pasta'
-tandoor --output json recipe get 42 | jq '.steps[].ingredients'
-cat examples/recipe.json | tandoor --output json recipe create --file -
+tandoor --output json list --query 'pasta'
+tandoor --output json get 42 | jq '.steps[].ingredients'
+cat examples/recipe.json | tandoor --output json create --file -
 ```
 
 - `--output auto` (default) prints readable text when stdout is a terminal and
@@ -84,7 +84,7 @@ cat examples/recipe.json | tandoor --output json recipe create --file -
   `status` and `details` are present only for API errors.
 - Exit codes: `0` success, `1` runtime failure, `2` argument/usage error.
   Clap's help, version, and usage errors are text even when JSON is selected.
-- `recipe list` returns `{count,next,previous,results}`. `--all` follows pagination
+- `list` returns `{count,next,previous,results}`. `--all` follows pagination
   and returns an array, starting from `--page` if supplied. Detail, create, and
   update commands return a recipe object; lists omit `steps`.
 - Delete returns `{"deleted":true,"id":42}`. Generic API commands return the
