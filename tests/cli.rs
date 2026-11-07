@@ -382,7 +382,7 @@ async fn resource_lists_search_filter_and_follow_pagination() {
             .and(path(format!("/api/{endpoint}/")))
             .and(query_param("page", "2"))
             .and(query_param("page_size", "1"));
-        for pair in filters.chunks_exact(2) {
+        for pair in filters.as_chunks::<2>().0 {
             mock = mock.and(query_param(pair[0].trim_start_matches('-'), pair[1]));
         }
         mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
