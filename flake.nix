@@ -22,7 +22,7 @@
             };
             cargoLock.lockFile = ./Cargo.lock;
             __darwinAllowLocalNetworking = true;
-            nativeBuildInputs = [ pkgs.rustfmt pkgs.clippy ];
+            nativeBuildInputs = [ pkgs.rustfmt rustPkgs.buildPackages.clippy ];
             preCheck = ''
               cargo fmt --all --check
               cargo clippy --offline --locked --release --target ${rustPkgs.stdenv.hostPlatform.rust.rustcTarget} --all-targets -- -D warnings
